@@ -24,6 +24,10 @@
 #include <unordered_map>
 #include <utility>
 
+#if USE_BOOST==ON
+  #include <boost/serialization/vector.hpp>
+#endif
+
 namespace richdem::dephier {
 
 //We use a 32-bit integer for labeling depressions. This allows for a maximum of
@@ -42,7 +46,38 @@ const dh_label_t NO_VALUE  = std::numeric_limits<dh_label_t>::max();
 //one outlet at the same level one of them is arbitrarily chosen; hopefully this                                                  //so, everything should have a parent except for the ocean, right?
 //happens only rarely in natural environments.
 template<class elev_t>
-struct Depression {
+class Depression {
+//private:
+
+
+ public:
+ #if USE_BOOST==ON
+
+    friend class boost::serialization::access;
+    // When the class Archive corresponds to an output archive, the
+    // & operator is defined similar to <<.  Likewise, when the class Archive
+    // is a type of input archive the & operator is defined similar to >>.
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int version)
+    {
+        ar & pit_cell;
+        ar & out_cell;
+        ar & parent;
+        ar & odep;
+        ar & geolink;
+        ar & pit_elev;
+        ar & out_elev;
+        ar & lchild;
+        ar & rchild;
+        ar & ocean_parent;
+        ar & ocean_linked;
+        ar & dep_label;
+        ar & cell_count;
+        ar & dep_vol;
+        ar & water_vol;
+        ar & total_elevation;
+    };
+ #endif
   //Flat index of the pit cell, the lowest cell in the depression. If more than
   //one cell shares this lowest elevation, then one is arbitrarily chosen.
   flat_c_idx pit_cell = NO_VALUE;
@@ -103,7 +138,8 @@ struct Depression {
 
 //The OutletLink is used as a key for a hashtable which stores information about
 //the outlets.
-struct OutletLink {
+class OutletLink {
+ public:
   dh_label_t depa;
   dh_label_t depb;
   OutletLink() = default;
@@ -118,7 +154,8 @@ struct OutletLink {
 //The outlet class stores, again, the depressions being linked as well as
 //information about the link
 template<class elev_t>
-struct Outlet {
+class Outlet {
+ public:
   dh_label_t depa;                //Depression A
   dh_label_t depb;                //Depression B
   flat_c_idx out_cell = NO_VALUE; //Flat-index of cell at which A and B meet.
@@ -245,7 +282,6 @@ std::ostream& operator<<(std::ostream &out, const DepressionHierarchy<elev_t> &d
 }
 
 
-
 //Calculate the hierarchy of depressions. Takes as input a digital elevation
 //model and a set of labels. The labels should have `OCEAN` for cells
 //representing the "ocean" (the place to which depressions drain) and `NO_DEP`
@@ -276,11 +312,23 @@ DepressionHierarchy<elev_t> GetDepressionHierarchy(
   RDLOG_ALG_NAME<<"DepressionHierarchy";
 
   //A D4 or D8 topology can be used.
-  static_assert(topo==Topology::D8 || topo==Topology::D4);
-  constexpr auto dx = get_dx_for_topology<topo>();
-  constexpr auto dy = get_dy_for_topology<topo>();
-  constexpr auto dinverse = get_dinverse_for_topology<topo>();
-  constexpr auto neighbours = get_nmax_for_topology<topo>();
+  const int    *dx;
+  const int    *dy;
+  const int    *dinverse;
+  int     neighbours;
+  if(topo==Topology::D4){
+    dx         = d4x;
+    dy         = d4y;
+    dinverse   = d4_inverse;
+    neighbours = 4;
+  } else if(topo==Topology::D8){
+    dx         = d8x;
+    dy         = d8y;
+    dinverse   = d8_inverse;
+    neighbours = 8;
+  } else {
+    throw std::runtime_error("Unrecognised topology!");
+  }
 
   //Depressions are identified by a number [0,*). The ocean is always
   //"depression" 0. This vector holds the depressions.
@@ -833,7 +881,6 @@ void CalculateTotalVolumes(
   }
   progress.stop();
 }
-
 
 
 //Utility function for doing various relabelings based on the depression
